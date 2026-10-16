@@ -2,6 +2,7 @@ package com.example.studentmanagement.data.repository
 
 import com.example.studentmanagement.data.local.StudentDao
 import com.example.studentmanagement.data.remote.StudentApi
+import com.example.studentmanagement.data.remote.StudentCreateRequest
 import com.example.studentmanagement.model.Student
 
 class StudentRepository(
@@ -11,10 +12,9 @@ class StudentRepository(
     // Returns Pair(List<Student>, isOnline: Boolean)
     suspend fun getStudents(): Pair<List<Student>, Boolean> {
         return try {
-            val remoteStudents = api.getStudents()
-            remoteStudents.forEach { student ->
-                dao.insertStudent(student)
-            }
+            val remoteStudents = api.getStudents().map { it.toStudent() }
+            dao.deleteAll()
+            dao.insertAll(remoteStudents)
             Pair(remoteStudents, true)
         } catch (e: Exception) {
             var localStudents = dao.getAllStudents()
@@ -36,14 +36,26 @@ class StudentRepository(
     }
 
     suspend fun getRemoteStudents(): List<Student> {
-        return api.getStudents()
+        return api.getStudents().map { it.toStudent() }
     }
 
     suspend fun addStudent(student: Student) {
+        api.createStudent(
+            StudentCreateRequest(student.studentCode, student.name, student.major)
+        )
         dao.insertStudent(student)
     }
 
     suspend fun deleteStudent(student: Student) {
+        api.deleteStudent(student.id)
         dao.deleteStudent(student)
+    }
+
+    suspend fun updateStudent(student: Student) {
+        api.updateStudent(
+            student.id,
+            StudentCreateRequest(student.studentCode, student.name, student.major)
+        )
+        dao.insertStudent(student)
     }
 }

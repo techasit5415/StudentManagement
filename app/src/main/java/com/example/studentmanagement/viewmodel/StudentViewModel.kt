@@ -79,7 +79,7 @@ class StudentViewModel(
     fun updateStudent(student: Student) {
         viewModelScope.launch {
             try {
-                repository.addStudent(student) // Room @Insert(onConflict = REPLACE) or insert
+                repository.updateStudent(student)
                 loadStudents()
                 selectedStudent = student
                 showEditDialog = false
