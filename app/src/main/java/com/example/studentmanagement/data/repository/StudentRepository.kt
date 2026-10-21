@@ -4,58 +4,61 @@ import com.example.studentmanagement.data.local.StudentDao
 import com.example.studentmanagement.data.remote.StudentApi
 import com.example.studentmanagement.data.remote.StudentCreateRequest
 import com.example.studentmanagement.model.Student
+import kotlinx.coroutines.flow.Flow
 
 class StudentRepository(
     private val dao: StudentDao,
     private val api: StudentApi
 ) {
-    // Returns Pair(List<Student>, isOnline: Boolean)
-    suspend fun getStudents(): Pair<List<Student>, Boolean> {
+    fun observeStudents(): Flow<List<Student>> = dao.observeStudents()
+
+    suspend fun refreshFromServer(): Boolean {
         return try {
-            val remoteStudents = api.getStudents().map { it.toStudent() }
-            dao.deleteAll()
-            dao.insertAll(remoteStudents)
-            Pair(remoteStudents, true)
-        } catch (e: Exception) {
-            var localStudents = dao.getAllStudents()
-            if (localStudents.isEmpty()) {
-                val defaultStudents = listOf(
-                    Student(1, "66050160", "Techasit", "Computer Science"),
-                    Student(2, "65010002", "Suda", "Information Technology"),
-                    Student(3, "65010003", "Mana", "Digital Technology")
-                )
-                defaultStudents.forEach { dao.insertStudent(it) }
-                localStudents = defaultStudents
+            api.getStudents().forEach { dto ->
+                val existing = dao.getByServerId(dto.id)
+                dao.insertStudent(dto.toStudent(existing?.localId ?: 0))
             }
-            Pair(localStudents, false)
+            true
+        } catch (_: Exception) {
+            false
         }
     }
 
-    suspend fun getLocalStudents(): List<Student> {
-        return dao.getAllStudents()
-    }
-
-    suspend fun getRemoteStudents(): List<Student> {
-        return api.getStudents().map { it.toStudent() }
-    }
-
-    suspend fun addStudent(student: Student) {
-        api.createStudent(
-            StudentCreateRequest(student.studentCode, student.name, student.major)
+    suspend fun addStudent(studentCode: String, name: String, major: String) {
+        dao.insertStudent(
+            Student(
+                studentCode = studentCode,
+                name = name,
+                major = major,
+                syncStatus = "PENDING"
+            )
         )
-        dao.insertStudent(student)
     }
 
-    suspend fun deleteStudent(student: Student) {
-        api.deleteStudent(student.id)
-        dao.deleteStudent(student)
-    }
-
-    suspend fun updateStudent(student: Student) {
-        api.updateStudent(
-            student.id,
-            StudentCreateRequest(student.studentCode, student.name, student.major)
-        )
-        dao.insertStudent(student)
+    suspend fun syncPending(): Boolean {
+        var allSuccessful = true
+        dao.getPendingStudents().forEach { student ->
+            try {
+                val response = api.createStudent(
+                    StudentCreateRequest(student.studentCode, student.name, student.major)
+                )
+                dao.updateStudent(
+                    student.copy(
+                        serverId = response.id,
+                        syncStatus = "SYNCED",
+                        updatedAt = System.currentTimeMillis()
+                    )
+                )
+            } catch (_: Exception) {
+                allSuccessful = false
+                dao.updateStudent(
+                    student.copy(
+                        syncStatus = "FAILED",
+                        updatedAt = System.currentTimeMillis()
+                    )
+                )
+            }
+        }
+        return allSuccessful
     }
 }
